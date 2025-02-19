@@ -173,8 +173,17 @@ dist
 
 # Finder (MacOS) folder config
 .DS_Store
+ HEAD
 
 .vscode
 .aider*
 package-lock.json
 *.diff.png
+
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+cli/
+ 5eabf40 (Removed embedded git repository cli/ and updated .gitignore)
