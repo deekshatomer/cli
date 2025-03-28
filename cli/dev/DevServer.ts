@@ -6,10 +6,12 @@ import type http from "node:http"
 import type { TypedKyInstance } from "typed-ky"
 import path from "node:path"
 import fs from "node:fs"
-import type { FileUpdatedEvent } from "lib/file-server/FileServerEvent"
+import type { FileUpdatedEvent } from "../../lib/file-server/FileServerEvent"
 import * as chokidar from "chokidar"
 import { FilesystemTypesHandler } from "lib/dependency-analysis/FilesystemTypesHandler"
 import { pushSnippet } from "lib/shared/push-snippet"
+import { globbySync } from "globby"
+import { ExportFormat, exportSnippet } from "lib/shared/export-snippet"
 
 export class DevServer {
   port: number
@@ -147,23 +149,13 @@ circuit.add(<MyCircuit />)
   }
 
   async upsertInitialFiles() {
-    // Define the list of files we care about
-    const relevantFiles = new Set([
-      "entrypoint.tsx",
-      "manual-edits.json",
-      "snippet.tsx",
-      path.basename(this.componentFilePath), // Include the main component file
-    ])
-
     // Scan project directory for relevant files and upsert them
-    const fileNames = fs.readdirSync(this.projectDir)
+    const fileNames = globbySync("**", {
+      cwd: this.projectDir,
+      ignore: ["**/node_modules/**", "**/.git/**"],
+    })
+
     for (const fileName of fileNames) {
-      // Skip directories and non-relevant files
-      if (
-        fs.statSync(path.join(this.projectDir, fileName)).isDirectory() ||
-        !relevantFiles.has(fileName)
-      )
-        continue
       const fileContent = fs.readFileSync(
         path.join(this.projectDir, fileName),
         "utf-8",
@@ -181,21 +173,19 @@ circuit.add(<MyCircuit />)
   private async saveSnippet() {
     const postEvent = async (
       event: "FAILED_TO_SAVE_SNIPPET" | "SNIPPET_SAVED",
+      message?: string,
     ) =>
       this.fsKy.post("api/events/create", {
-        json: { event_type: event },
+        json: { event_type: event, ...(message ? { message } : {}) },
         throwHttpErrors: false,
       })
 
     await pushSnippet({
       filePath: this.componentFilePath,
-      onExit: (e) => {
-        console.error("Failed to save snippet", e)
-        postEvent("FAILED_TO_SAVE_SNIPPET")
-      },
+      onExit: () => {},
       onError: (e) => {
-        console.error("Failed to save snippet", e)
-        postEvent("FAILED_TO_SAVE_SNIPPET")
+        console.error("Failed to save snippet:- ", e)
+        postEvent("FAILED_TO_SAVE_SNIPPET", e)
       },
       onSuccess: () => {
         postEvent("SNIPPET_SAVED")

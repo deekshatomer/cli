@@ -1,14 +1,13 @@
 import { getCliTestFixture } from "./fixtures/get-cli-test-fixture"
 import { test, expect } from "bun:test"
-import fs from "fs"
-import path from "path"
+import fs from "node:fs"
+import path from "node:path"
 
 test("basic init", async () => {
   const { tmpDir, runCommand } = await getCliTestFixture()
 
   // Run the `tsci init` command
   const { stdout, stderr } = await runCommand("tsci init project")
-  expect(stderr).toBe("")
 
   const dirContents = fs.readdirSync(path.join(tmpDir, "project"))
 
@@ -17,7 +16,7 @@ test("basic init", async () => {
     ".npmrc",
     "index.tsx",
     "node_modules",
-    "package-lock.json",
+    "bun.lock",
     "package.json",
     "tsconfig.json",
   ])

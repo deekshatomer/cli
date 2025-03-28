@@ -3,16 +3,22 @@ import { getKy } from "lib/registry-api/get-ky"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import semver from "semver"
+import Debug from "debug"
+import kleur from "kleur"
 
 type PushOptions = {
   filePath?: string
+  isPrivate?: boolean
   onExit?: (code: number) => void
   onError?: (message: string) => void
   onSuccess?: (message: string) => void
 }
 
+const debug = Debug("tsci:push-snippet")
+
 export const pushSnippet = async ({
   filePath,
+  isPrivate,
   onExit = (code) => process.exit(code),
   onError = (message) => console.error(message),
   onSuccess = (message) => console.log(message),
@@ -35,7 +41,9 @@ export const pushSnippet = async ({
       onSuccess("No file provided. Using 'index.tsx' as the entrypoint.")
     } else {
       onError(
-        "No entrypoint found. Run 'tsci init' to bootstrap a basic project.",
+        kleur.red(
+          "No entrypoint found. Run 'tsci init' to bootstrap a basic project.",
+        ),
       )
       return onExit(1)
     }
@@ -106,16 +114,32 @@ export const pushSnippet = async ({
   const doesPackageExist = await ky
     .post<{ error?: { error_code: string } }>("packages/get", {
       json: { name: packageIdentifier },
-      throwHttpErrors: false,
+      headers: { Authorization: `Bearer ${sessionToken}` },
     })
     .json()
-    .then((response) => !(response.error?.error_code === "package_not_found"))
+    .then((response) => {
+      debug("doesPackageExist", response)
+      return true
+    })
+    .catch((error) => {
+      // Package not found
+      if (error.response.status === 404) {
+        return false
+      }
+    })
 
   if (!doesPackageExist) {
     await ky
       .post("packages/create", {
-        json: { name: packageIdentifier },
+        json: {
+          name: packageIdentifier,
+          is_private: isPrivate ?? false,
+        },
         headers: { Authorization: `Bearer ${sessionToken}` },
+      })
+      .then((response) => {
+        debug("createPackage", response)
+        onSuccess(`Package ${response.json()} created`)
       })
       .catch((error) => {
         onError(`Error creating package: ${error}`)
@@ -131,16 +155,23 @@ export const pushSnippet = async ({
       json: {
         package_name_with_version: `${packageIdentifier}@${packageVersion}`,
       },
-      throwHttpErrors: false,
     })
     .json()
     .then((response) => {
+      debug("doesReleaseExist", response)
       if (response.package_release?.version) {
         packageVersion = response.package_release.version
         updatePackageJsonVersion(response.package_release.version)
         return true
       }
       return !(response.error?.error_code === "package_release_not_found")
+    })
+    .catch((error) => {
+      // Package release not found
+      if (error.response.status === 404) {
+        return false
+      }
+      onError(`Error checking if release exists: ${error}`)
     })
 
   if (doesReleaseExist) {
@@ -157,7 +188,6 @@ export const pushSnippet = async ({
       json: {
         package_name_with_version: `${packageIdentifier}@${packageVersion}`,
       },
-      throwHttpErrors: false,
     })
     .catch((error) => {
       onError(`Error creating release: ${error}`)
@@ -181,13 +211,15 @@ export const pushSnippet = async ({
           content_text: fileContent,
           package_name_with_version: `${packageIdentifier}@${packageVersion}`,
         },
-        throwHttpErrors: false,
       })
-      .then(() => {
+      .json()
+      .then((response) => {
+        debug("createPackageFile", response)
         onSuccess(`Uploaded file ${file} to the registry.`)
       })
       .catch((error) => {
         onError(`Error uploading file ${file}: ${error}`)
+        return onExit(1)
       })
   }
 
